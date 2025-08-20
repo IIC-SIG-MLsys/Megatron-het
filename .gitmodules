@@ -1,12 +1,9 @@
-[submodule "thirdparty/Ascend-Megatron-LM"]
-	path = thirdparty/Ascend-Megatron-LM
-	url = https://github.com/NVIDIA/Megatron-LM.git
-[submodule "thirdparty/Nvidia-Megatron-LM-0.9.0"]
-	path = thirdparty/Nvidia-Megatron-LM-0.9.0
-	url = https://github.com/NVIDIA/Megatron-LM.git
 [submodule "thirdparty/uccl"]
 	path = thirdparty/uccl
 	url = https://github.com/uccl-project/uccl.git
 [submodule "thirdparty/HMC"]
 	path = thirdparty/HMC
 	url = https://github.com/IIC-SIG-MLsys/HMC.git
+[submodule "thirdparty/ascend_megatron_lm"]
+	path = thirdparty/ascend_megatron_lm
+	url = https://github.com/NVIDIA/Megatron-LM.git
