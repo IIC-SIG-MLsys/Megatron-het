@@ -7,3 +7,6 @@
 [submodule "thirdparty/ascend_megatron_lm"]
 	path = thirdparty/ascend_megatron_lm
 	url = https://github.com/NVIDIA/Megatron-LM.git
+[submodule "thirdparty/nvidia_megatron_lm_0_9_0"]
+	path = thirdparty/nvidia_megatron_lm_0_9_0
+	url = https://github.com/NVIDIA/Megatron-LM.git
