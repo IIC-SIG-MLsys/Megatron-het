@@ -7,3 +7,6 @@
 [submodule "thirdparty/uccl"]
 	path = thirdparty/uccl
 	url = https://github.com/uccl-project/uccl.git
+[submodule "thirdparty/HMC"]
+	path = thirdparty/HMC
+	url = https://github.com/IIC-SIG-MLsys/HMC.git
