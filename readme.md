@@ -1,4 +1,6 @@
 
 ## init submodule on demand
-git submodule update --init --recursive thirdparty/Ascend-Megatron-LM
-git submodule update --init --recursive thirdparty/Nvidia-Megatron-LM-0.9.0
+git submodule update --init --recursive thirdparty/ascend_megatron_lm
+git submodule update --init --recursive thirdparty/nvidia_megatron_lm_0_9_0
+git submodule update --init --recursive thirdparty/uccl
+git submodule update --init --recursive thirdparty/HMC

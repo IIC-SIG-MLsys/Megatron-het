@@ -1,5 +1,5 @@
 - python version: Python3.10.x
-- pytorch version: v2.4.0
+- pytorch version: v2.5.0
 
 # Nvidia
 All
@@ -14,7 +14,7 @@ pip install -e MindSpeed
 ```
 
 # Cambricon
-- torch 2.4 for megatron 0.9
+- torch 2.5 for megatron 0.9
 - megatron-lm-0.9.0+mlu0.6.0
 
 # AMD/Hygon

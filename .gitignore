@@ -1,2 +1,3 @@
-/thirdparty/MLU-Megatron-LM/
+/thirdparty/mlu_megatron_lm/
 /data/
+*__pycache__

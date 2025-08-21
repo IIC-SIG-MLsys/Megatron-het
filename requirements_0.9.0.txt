@@ -1,0 +1,12 @@
+regex
+pybind11
+sentencepiece
+zarr
+tensorstore
+transformers
+datasets
+peft==0.14.0
+# pip install "transformer_engine[pytorch]" --extra-index-url https://pypi.nvidia.com
+ninja
+numpy
+transformer-engine[pytorch]
