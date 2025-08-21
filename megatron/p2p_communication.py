@@ -16,6 +16,44 @@ from megatron.core.parallel_state import (
     get_pipeline_model_parallel_world_size,
 )
 
+from p2p_backend import HMCComm, HMCRequest
+from typing import Dict, Tuple, List
+
+_HET_COMM: Dict[str, 'HMCComm'] = {} # gourp_name : HMCComm
+
+def get_local_ip_port():
+    # todo
+    return "127.0.0.1", 12345
+
+def get_rank_ip_port_map(ranks: List[int]) -> Dict[int, Tuple[str, int]]:
+    if not torch.dist.is_initialized():
+        raise RuntimeError("Distributed not initialized.")
+
+    rank = torch.dist.get_rank()
+    ip, port = get_local_ip_port()
+    
+    if rank == 0:
+        rank_info = [(rank, ip, port)]
+        for src in ranks:
+            if src == 0:
+                continue
+            info = torch.dist.recv(src=src)
+            rank_info.append(tuple(info))
+    else:
+        torch.dist.send([rank, ip, port], dst=0)
+        rank_info = None
+
+    rank_info = torch.dist.broadcast_object_list([rank_info], src=0)
+    return {r: (ip, port) for r, ip, port in rank_info[0]}
+
+def init_p2p_comm(group: torch.distributed.ProcessGroup = None):
+    global _HET_COMM
+    if group == None:
+        group = torch.distributed.group.WORLD
+    if group.group_name() in _HET_COMM:
+        return
+    _HET_COMM[group.group_name()] = HMCComm(rank_ip=get_rank_ip_port_map(group))
+
 # Types
 Shape = Union[List[int], torch.Size]
 
@@ -39,6 +77,8 @@ def _communicate_shapes(tensor_send_next, tensor_send_prev, recv_prev, recv_next
         (recv_prev_shape, recv_next_shape)
     """
 
+    init_p2p_comm()
+
     recv_prev_shape_tensor = None
     recv_next_shape_tensor = None
     send_prev_shape_tensor = None
@@ -60,52 +100,24 @@ def _communicate_shapes(tensor_send_next, tensor_send_prev, recv_prev, recv_next
             tensor_send_next.size(), device=torch.cuda.current_device(), dtype=torch.int64
         )
 
-    if config.use_ring_exchange_p2p:
-        torch.distributed.ring_exchange(
-            tensor_send_prev=send_prev_shape_tensor,
-            tensor_recv_prev=recv_prev_shape_tensor,
-            tensor_send_next=send_next_shape_tensor,
-            tensor_recv_next=recv_next_shape_tensor,
-            group=get_pipeline_model_parallel_group(),
-        )
-    else:
-        ops = []
-        if send_prev_shape_tensor is not None:
-            send_prev_op = torch.distributed.P2POp(
-                torch.distributed.isend,
-                send_prev_shape_tensor,
-                get_pipeline_model_parallel_prev_rank(),
-            )
-            ops.append(send_prev_op)
-        if recv_prev_shape_tensor is not None:
-            recv_prev_op = torch.distributed.P2POp(
-                torch.distributed.irecv,
-                recv_prev_shape_tensor,
-                get_pipeline_model_parallel_prev_rank(),
-            )
-            ops.append(recv_prev_op)
-        if send_next_shape_tensor is not None:
-            send_next_op = torch.distributed.P2POp(
-                torch.distributed.isend,
-                send_next_shape_tensor,
-                get_pipeline_model_parallel_next_rank(),
-            )
-            ops.append(send_next_op)
-        if recv_next_shape_tensor is not None:
-            recv_next_op = torch.distributed.P2POp(
-                torch.distributed.irecv,
-                recv_next_shape_tensor,
-                get_pipeline_model_parallel_next_rank(),
-            )
-            ops.append(recv_next_op)
-        if len(ops) > 0:
-            reqs = torch.distributed.batch_isend_irecv(ops)
-            for req in reqs:
-                req.wait()
+    default_group = torch.distributed.group.WORLD
 
-        # To protect against race condition when using batch_isend_irecv().
-        # should take this out once the bug with batch_isend_irecv is resolved.
-        torch.cuda.synchronize()
+    reqs = []
+    if send_prev_shape_tensor is not None:
+        send_prev_op = _HET_COMM[default_group.group_name()].isend(send_prev_shape_tensor, get_pipeline_model_parallel_prev_rank())
+        reqs.append(send_prev_op)
+    if recv_prev_shape_tensor is not None:
+        recv_prev_op = _HET_COMM[default_group.group_name()].irecv(recv_prev_shape_tensor, get_pipeline_model_parallel_prev_rank())
+        reqs.append(recv_prev_op)
+    if send_next_shape_tensor is not None:
+        send_next_op = _HET_COMM[default_group.group_name()].isend(send_next_shape_tensor, get_pipeline_model_parallel_next_rank())
+        reqs.append(send_next_op)
+    if recv_next_shape_tensor is not None:
+        recv_next_op = _HET_COMM[default_group.group_name()].irecv(recv_next_shape_tensor, get_pipeline_model_parallel_next_rank())
+        reqs.append(recv_next_op)
+    if len(reqs) > 0:
+        for req in reqs:
+            req.wait()
 
     recv_prev_shape = [0, 0, 0]
     if recv_prev_shape_tensor is not None:
@@ -128,31 +140,20 @@ def _batched_p2p_ops(
     prev_pipeline_rank: int,
     next_pipeline_rank: int,
 ):
-    ops = []
+    init_p2p_comm(group)
+    reqs = []
     if tensor_send_prev is not None:
-        send_prev_op = torch.distributed.P2POp(
-            torch.distributed.isend, tensor_send_prev, prev_pipeline_rank, group
-        )
-        ops.append(send_prev_op)
+        send_prev_op = _HET_COMM[group.group_name()].isend(tensor_send_prev, prev_pipeline_rank)
+        reqs.append(send_prev_op)
     if tensor_recv_prev is not None:
-        recv_prev_op = torch.distributed.P2POp(
-            torch.distributed.irecv, tensor_recv_prev, prev_pipeline_rank, group
-        )
-        ops.append(recv_prev_op)
+        recv_prev_op = _HET_COMM[group.group_name()].irecv(tensor_recv_prev, prev_pipeline_rank)
+        reqs.append(recv_prev_op)
     if tensor_send_next is not None:
-        send_next_op = torch.distributed.P2POp(
-            torch.distributed.isend, tensor_send_next, next_pipeline_rank, group
-        )
-        ops.append(send_next_op)
+        send_next_op = _HET_COMM[group.group_name()].isend(tensor_send_next, next_pipeline_rank)
+        reqs.append(send_next_op)
     if tensor_recv_next is not None:
-        recv_next_op = torch.distributed.P2POp(
-            torch.distributed.irecv, tensor_recv_next, next_pipeline_rank, group
-        )
-        ops.append(recv_next_op)
-    if len(ops) > 0:
-        reqs = torch.distributed.batch_isend_irecv(ops)
-    else:
-        reqs = []
+        recv_next_op = _HET_COMM[group.group_name()].irecv(tensor_recv_next, next_pipeline_rank)
+        reqs.append(recv_next_op)
     return reqs
 
 
@@ -165,67 +166,46 @@ def _p2p_ops(
     group: torch.distributed.ProcessGroup,
     prev_pipeline_rank: int,
     next_pipeline_rank: int,
-):
+):  
     reqs = []
     rank = get_pipeline_model_parallel_rank()
     even_send_odd_recv_group = group
+    init_p2p_comm(even_send_odd_recv_group)
     if get_pipeline_model_parallel_world_size() == 2:
         # Use the global process group for one of the two p2p communications
         # to allow the overlap of the independent communications.
         # Using the global process group is compatible because the pipeline-parallel
         # communications set the source and destination by global rank.
         even_recv_odd_send_group = torch.distributed.group.WORLD
+        init_p2p_comm(even_recv_odd_send_group)
     else:
         even_recv_odd_send_group = group
 
     if get_pipeline_model_parallel_rank() % 2 == 0:
         if tensor_send_next is not None:
-            send_next_req = torch.distributed.isend(
-                tensor=tensor_send_next, dst=next_pipeline_rank, group=even_send_odd_recv_group
-            )
+            send_next_req = _HET_COMM[even_send_odd_recv_group.group_name()].isend(tensor_send_next, next_pipeline_rank)
             reqs.append(send_next_req)
-
         if tensor_recv_prev is not None:
-            recv_prev_req = torch.distributed.irecv(
-                tensor=tensor_recv_prev, src=prev_pipeline_rank, group=even_recv_odd_send_group
-            )
+            recv_prev_req = _HET_COMM[even_recv_odd_send_group.group_name()].irecv(tensor_recv_prev, prev_pipeline_rank)
             reqs.append(recv_prev_req)
-
         if tensor_send_prev is not None:
-            send_prev_req = torch.distributed.isend(
-                tensor=tensor_send_prev, dst=prev_pipeline_rank, group=even_send_odd_recv_group
-            )
+            send_prev_req = _HET_COMM[even_send_odd_recv_group.group_name()].isend(tensor_send_prev, prev_pipeline_rank)
             reqs.append(send_prev_req)
-
         if tensor_recv_next is not None:
-            recv_next_req = torch.distributed.irecv(
-                tensor=tensor_recv_next, src=next_pipeline_rank, group=even_recv_odd_send_group
-            )
+            recv_next_req = _HET_COMM[even_send_odd_recv_group.group_name()].irecv(tensor_recv_next, next_pipeline_rank)
             reqs.append(recv_next_req)
-
     else:
         if tensor_recv_prev is not None:
-            recv_prev_req = torch.distributed.irecv(
-                tensor=tensor_recv_prev, src=prev_pipeline_rank, group=even_send_odd_recv_group
-            )
+            recv_prev_req = _HET_COMM[even_send_odd_recv_group.group_name()].irecv(tensor_recv_prev, prev_pipeline_rank)
             reqs.append(recv_prev_req)
-
         if tensor_send_next is not None:
-            send_next_req = torch.distributed.isend(
-                tensor=tensor_send_next, dst=next_pipeline_rank, group=even_recv_odd_send_group
-            )
+            send_next_req = _HET_COMM[even_recv_odd_send_group.group_name()].isend(tensor_send_next, next_pipeline_rank)
             reqs.append(send_next_req)
-
         if tensor_recv_next is not None:
-            recv_next_req = torch.distributed.irecv(
-                tensor=tensor_recv_next, src=next_pipeline_rank, group=even_send_odd_recv_group
-            )
+            recv_next_req = _HET_COMM[even_send_odd_recv_group.group_name()].irecv(tensor_recv_next, next_pipeline_rank)
             reqs.append(recv_next_req)
-
         if tensor_send_prev is not None:
-            send_prev_req = torch.distributed.isend(
-                tensor=tensor_send_prev, dst=prev_pipeline_rank, group=even_recv_odd_send_group
-            )
+            recv_next_req = _HET_COMM[even_recv_odd_send_group.group_name()].isend(tensor_send_prev, prev_pipeline_rank)
             reqs.append(send_prev_req)
     return reqs
 
@@ -327,7 +307,7 @@ def _communicate(
             torch.distributed.ring_exchange(**kwargs)
             return []
 
-        p2p_func = _ring_exchange_wrapper
+        p2p_func = _ring_exchange_wrapper # megatron-het todo, disable this in the future
     elif config.batch_p2p_comm:
         assert wait_on_reqs
         p2p_func = _batched_p2p_ops
@@ -383,7 +363,7 @@ def _communicate(
             req.wait()
         reqs = None
 
-    if config.batch_p2p_comm and config.batch_p2p_sync:
+    if config.batch_p2p_comm and config.batch_p2p_sync: # megatron-het: we don't need batch_p2p_comm
         # To protect against race condition when using batch_isend_irecv().
         # User should assert that we have a modern enough PyTorch to not need this
         torch.cuda.synchronize()
