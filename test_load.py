@@ -1,11 +1,9 @@
-# main.py
 
-import megatron
+import megatron_het
+print("Vendor info:", megatron_het.get_vendor_info())
+print("Module location:", megatron_het.__file__)
 
-# 访问 core
-print(megatron.core)
-# 例如：from megatron.core import parallel_state
+print(megatron_het.core)
+print(megatron_het.training)
 
-# 访问 training
-print(megatron.training)
-# 例如：from megatron.training import initialize
+from megatron_het.training import get_args

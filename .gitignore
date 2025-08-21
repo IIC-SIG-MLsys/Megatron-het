@@ -1,3 +1,9 @@
 /thirdparty/mlu_megatron_lm/
-/data/
+/data/checkpoints
+/data/tensorboard
+/data/wikidata
+/data/bert-large-cased-vocab.txt
+/data/bert-large-uncased-vocab.txt
+/data/gpt2-merges.txt
+/data/gpt2-vocab.json
 *__pycache__
