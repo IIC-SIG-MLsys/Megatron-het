@@ -6,6 +6,9 @@ from typing import Callable, List, Optional, Tuple, Union
 
 import torch
 
+from megatron_het.p2p_backend import init_p2p_comm, P2pBackend, _HET_COMM
+default_backend = P2pBackend.TCPComm
+
 from megatron import core
 from megatron.core import ModelParallelConfig
 from megatron.core.parallel_state import (
@@ -15,9 +18,6 @@ from megatron.core.parallel_state import (
     get_pipeline_model_parallel_rank,
     get_pipeline_model_parallel_world_size,
 )
-
-from megatron.p2p_backend import init_p2p_comm, P2pBackend, _HET_COMM
-default_backend = P2pBackend.TCPComm
 
 # Types
 Shape = Union[List[int], torch.Size]

@@ -27,6 +27,38 @@ if not os.path.isdir(_SELECTED_ROOT):
 if _SELECTED_ROOT not in sys.path:
     sys.path.insert(0, _SELECTED_ROOT)
 
+# --- PRE-INSERT: put our local p2p_communication into sys.modules for vendor imports ---
+def _preinsert_local_p2p():
+    """
+    Insert local p2p_communication module into sys.modules under the full
+    name vendor code will import: 'megatron.core.pipeline_parallel.p2p_communication'.
+    Must run BEFORE vendor submodules are imported.
+    """
+    target_name = "megatron.core.pipeline_parallel.p2p_communication"
+    try:
+        # Try relative import first (works when this package is installed / imported)
+        try:
+            from . import p2p_communication as local_p2p  # type: ignore
+        except Exception:
+            # Fallback to absolute import by package name
+            local_p2p = importlib.import_module(f"{__name__}.p2p_communication")
+
+        # Put our module object into sys.modules under the name vendor expects.
+        sys.modules[target_name] = local_p2p
+
+        # Also register the shorter lookup (some code may import via full path with different semantics)
+        sys.modules.setdefault("megatron.core.pipeline_parallel.p2p_communication", local_p2p)
+
+        print(f"[megatron_het] Pre-inserted local p2p_communication as {target_name}")
+        return True
+    except Exception as e:
+        print(f"[megatron_het] Failed to pre-insert p2p shim: {e}")
+        traceback.print_exc()
+        return False
+
+# Call pre-insert before vendor imports
+_preinsert_local_p2p()
+
 def _import_submodule(name: str) -> Optional[ModuleType]:
     full_name = f"megatron.{name}"
     try:
@@ -59,12 +91,3 @@ def get_vendor_info():
     }
 
 __all__ = ["get_vendor_info", "core", "training", "legacy"]
-
-# # --- replace p2p_communication ---
-# try:
-#     from . import p2p_communication as my_p2
-#     sys.modules["megatron.core.pipeline_parallel.p2p_communication"] = my_p2
-#     print("[megatron init] p2p_communication overridden with local implementation")
-# except Exception as e:
-#     print(f"[megatron init] Failed to override p2p_communication: {e}")
-#     traceback.print_exc()
