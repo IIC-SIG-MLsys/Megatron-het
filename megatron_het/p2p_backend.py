@@ -178,7 +178,7 @@ class TCPComm(CommBase):
             ).reshape(shape).clone()  # clone to ensure ownership
 
             # copy to target device
-            tensor.copy_(cpu_tensor.to(tensor.device))
+            tensor.data.copy_(cpu_tensor.to(tensor.device))
 
         return TCPRequest(threading.Thread(target=recv_fn))
 

@@ -34,7 +34,7 @@ GPT_MODEL_ARGS=(
 )
 
 TRAINING_ARGS=(
-    --micro-batch-size 1 
+    --micro-batch-size 16 
     --global-batch-size 1536 
     --train-iters 500000 
     --weight-decay 0.1 
@@ -52,7 +52,7 @@ TRAINING_ARGS=(
 
 MODEL_PARALLEL_ARGS=(
 	--tensor-model-parallel-size 1
-	--pipeline-model-parallel-size 1
+	--pipeline-model-parallel-size 2
 )
 
 DATA_ARGS=(
